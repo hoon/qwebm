@@ -11,6 +11,7 @@ import logging
 import argparse
 import tempfile
 import sys
+import time
 
 DIM_MULT = 4  # the number the dimensions should be divisible by; improves playback compatibility
 MD_LONG = 960  # medium size video dimension of the long side (usually width)
@@ -33,6 +34,7 @@ def probe_file(path):
             "-loglevel",
             "error",
             "-show_streams",
+            "-show_format",
             "-print_format",
             "json",
             path,
@@ -44,10 +46,6 @@ def probe_file(path):
     logger.debug(f"ffprobe formatted json: {json.dumps(json_obj, indent=2)}")
 
     return json_obj
-
-
-def probe_file_video_only(path):
-    return probe_file(path)["streams"][0]
 
 
 def _get_path_breakdown(_path):
@@ -138,6 +136,7 @@ def get_target_video_dimension(source_width, source_height):
 def generate_ffmpeg_options(
     video_info,
     audio_info=None,
+    file_format_info=None,
     include_audio=False,
     audio_qscale_adjust=0,
     target_size=None,
@@ -152,7 +151,11 @@ def generate_ffmpeg_options(
 
     [width, height] = map(int, itemgetter("width", "height")(video_info))
     codec_name = video_info["codec_name"]
-    duration = float(video_info["duration"])
+    duration = float(
+        video_info["duration"]
+        if "duration" in video_info
+        else file_format_info["duration"]
+    )
 
     n_width, n_height = get_target_video_dimension(width, height)
 
@@ -229,7 +232,43 @@ def get_stream(media_info, codec_type):
     return None
 
 
-async def run_ffmpeg(video_info, ffmpeg_args):
+def convert_timestamp_to_sec(timestamp_str):
+    timestamp_pattern = re.compile("(\d{2}):(\d{2}):(\d{2}).(\d+)")
+    ts_matches = timestamp_pattern.findall(timestamp_str)
+
+    if len(ts_matches) < 1:
+        return None
+    else:
+        return (
+            int(ts_matches[0][0]) * 60 * 60
+            + int(ts_matches[0][1]) * 60
+            + int(ts_matches[0][2])
+            + int(ts_matches[0][3]) / (10 ** (len(ts_matches[0][3]) + 1))
+        )
+
+
+def generate_time_wheel(nanosec):
+    _gtw_SHIFT_EVERY_MS = 80
+    wheel_chars = ["|", "/", "-", "\\"]
+    return wheel_chars[floor(nanosec / 1000 / _gtw_SHIFT_EVERY_MS) % len(wheel_chars)]
+
+
+def compute_aux_info(media_info):
+    aux_info = dict()
+    video_info = get_stream(media_info, "video")
+    duration_str = None
+    if "tags" in video_info and "DURATION" in video_info["tags"]:
+        duration_str = video_info["tags"]["DURATION"]
+    elif "format" in media_info and "duration" in media_info["format"]:
+        duration_str = media_info["format"]["duration"]
+
+    if duration_str:
+        aux_info["duration_sec"] = convert_timestamp_to_sec(duration_str)
+
+    return aux_info
+
+
+async def run_ffmpeg(video_info, ffmpeg_args, file_format_info=None, aux_info=None):
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg",
         *ffmpeg_args,
@@ -237,17 +276,21 @@ async def run_ffmpeg(video_info, ffmpeg_args):
         stderr=asyncio.subprocess.PIPE,
     )
 
+    duration_sec = aux_info["duration_sec"] if "duration_sec" in aux_info else None
+
     # example ffmpeg outputs to match:
     # frame=  442 fps= 95 q=0.0 Lsize=    1049kB time=00:00:14.70 bitrate= 584.4kbits/s speed=3.17x
     # video:1045kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 0.370684%
+    # example pass 1
+    # frame= 1184 fps=185 q=0.0 Lsize=N/A time=00:00:39.49 bitrate=N/A speed=6.18x
     progress_frame_fps_pattern = re.compile("frame=\s*(\d+) fps=\s*(\d+)")
-    progress_size_time_pattern = re.compile(
-        "size=\s*(\d+)kB time=(\d{2}:\d{2}:\d{2}.\d{2})"
-    )
+    progress_size_pattern = re.compile("size=\s*(\d+)kB")
+    progress_time_pattern = re.compile("time=(\d{2}:\d{2}:\d{2}.\d{2})")
     summary_pattern = re.compile(
         "video:(\d+)kB audio:(\d+)kB subtitle:(\d+)kB other streams:(\d+)kB "
         "global headers:(\d+)kB muxing overhead: (\d+\.\d+)%"
     )
+
     err_buf = bytearray()
 
     total_kb = (
@@ -258,6 +301,7 @@ async def run_ffmpeg(video_info, ffmpeg_args):
     progress_timecode = None
     progress_pct = 0
     progress_end_newline_printed = False
+    start_time_ns = time.time_ns()
     while not proc.stderr.at_eof():
         err_byte = await proc.stderr.read(1)
         err_buf += err_byte
@@ -284,33 +328,71 @@ async def run_ffmpeg(video_info, ffmpeg_args):
             logger.debug(err_str)
 
             p_ff_matches = progress_frame_fps_pattern.findall(err_str)
-            p_st_matches = progress_size_time_pattern.findall(err_str)
+            p_size_matches = progress_size_pattern.findall(err_str)
+            p_time_matches = progress_time_pattern.findall(err_str)
 
             if p_ff_matches:
-                progress_pct = round(
-                    int(p_ff_matches[0][0]) / int(video_info["nb_frames"]) * 100, 1
-                )
-
-                if p_st_matches:
-                    logger.debug(f"ffmpeg output matches: {p_st_matches[0][0]} kB, {p_st_matches[0][1]}")
-                    total_kb = int(p_st_matches[0][0])
-                    progress_timecode = p_st_matches[0][1]
-
-                    print(
-                        f"\r * {progress_pct:.2f}% done; file up to {total_kb} kB; "
-                        f"video time up to {progress_timecode} ",
-                        end="",
+                if "nb_frames" in video_info:
+                    progress_pct = round(
+                        int(p_ff_matches[0][0]) / int(video_info["nb_frames"]) * 100, 1
                     )
-                else:
+
+                if p_size_matches:
+                    logger.debug(f"ffmpeg output matches: {p_size_matches[0][0]} kB")
+                    total_kb = int(p_size_matches[0])
+
+                if p_time_matches:
+                    progress_timecode = p_time_matches[0]
+                    logger.debug(f"ffmpeg output timecode match: {progress_timecode}")
+
+                    current_timecode_sec = convert_timestamp_to_sec(progress_timecode)
+
+                    if (
+                        "nb_frames" not in video_info
+                        and duration_sec is not None
+                        and duration_sec > 0
+                    ):
+                        progress_pct = round(
+                            current_timecode_sec / duration_sec * 100,
+                            1,
+                        )
+
+                    if progress_pct > 0 and current_timecode_sec > 0:
+                        print(
+                            f"\r * {progress_pct:.2f}% done; file up to {total_kb} kB; "
+                            f"video time up to {progress_timecode} ",
+                            end="",
+                        )
+                    else:
+                        print(f"\r * {progress_pct:.2f}% done ", end="")
+
+                elif progress_pct > 0:
                     print(f"\r * {progress_pct:.2f}% done ", end="")
 
-            else:
-                if not progress_end_newline_printed and progress_pct >= 100:
-                    progress_end_newline_printed = True
-                    print("")
+                if progress_pct <= 0:
+                    print(
+                        f"\r {generate_time_wheel(time.time_ns() - start_time_ns)} Processing...",
+                        end="",
+                    )
 
+            else:
                 logger.debug(f"progress output pattern not matched:\n{err_str}")
                 s_matches = summary_pattern.findall(err_str)
+
+                if not progress_end_newline_printed:
+                    if len(s_matches) > 0:
+                        progress_end_newline_printed = True
+                        print("")
+                    # pass 1 doesn't output mux overhead, so summary_pattern doesn't match
+                    elif err_str.find("video:0kB") > -1:
+                        # if percent progress was able to be displayed for pass 1
+                        if "nb_frames" in video_info:
+                            print("")
+                        # else clear "Processing..." and print "Done"
+                        else:
+                            print("\r" + " " * 20, end="")
+                            print("\r * Done")
+
                 if s_matches:
                     (
                         video_kb,
@@ -345,6 +427,8 @@ def two_pass_transcode_file(
     source_path,
     video_info=None,
     audio_info=None,
+    file_format_info=None,
+    aux_info=None,
     include_audio=False,
     target_size=None,
     preset="medium",
@@ -362,6 +446,7 @@ def two_pass_transcode_file(
             video_info,
             source_path=source_path,
             audio_info=audio_info,
+            file_format_info=file_format_info,
             include_audio=include_audio,
             target_size=target_size,
             pass_no=1,
@@ -374,7 +459,14 @@ def two_pass_transcode_file(
         print(f"Try {try_no}:")
         print(f"Pass 1 of 2:")
         logger.info(f"Options: {ffmpeg_options_pass_1}")
-        pass_1_result = asyncio.run(run_ffmpeg(video_info, ffmpeg_options_pass_1))
+        pass_1_result = asyncio.run(
+            run_ffmpeg(
+                video_info,
+                ffmpeg_options_pass_1,
+                file_format_info=file_format_info,
+                aux_info=aux_info,
+            )
+        )
         logger.info(f"pass 1 result: {pass_1_result}")
 
         print(f"Pass 2 of 2:")
@@ -382,6 +474,7 @@ def two_pass_transcode_file(
             video_info,
             source_path=source_path,
             audio_info=audio_info,
+            file_format_info=file_format_info,
             include_audio=include_audio,
             target_size=target_size,
             pass_no=2,
@@ -391,7 +484,14 @@ def two_pass_transcode_file(
             audio_qscale_adjust=ffmpeg_options_adjustments["audio_qscale_adjust"],
         )
         logger.info(f"Options: {ffmpeg_options_pass_2}")
-        pass_2_result = asyncio.run(run_ffmpeg(video_info, ffmpeg_options_pass_2))
+        pass_2_result = asyncio.run(
+            run_ffmpeg(
+                video_info,
+                ffmpeg_options_pass_2,
+                file_format_info=file_format_info,
+                aux_info=aux_info,
+            )
+        )
 
         logger.info(f"\npass 2 result: {pass_2_result}")
 
@@ -431,10 +531,17 @@ def two_pass_transcode(input_path, audio=False, size=None):
     media_info = probe_file(input_path)
     video_info = get_stream(media_info, "video")
     audio_info = get_stream(media_info, "audio")
+    file_format_info = media_info["format"]
+    aux_info = compute_aux_info(media_info)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         two_pass_transcode_file(
-            input_path, video_info, audio_info=audio_info, include_audio=audio
+            input_path,
+            video_info,
+            audio_info=audio_info,
+            file_format_info=file_format_info,
+            aux_info=aux_info,
+            include_audio=audio,
         )
 
     return None
