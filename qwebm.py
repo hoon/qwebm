@@ -18,7 +18,7 @@ MD_LONG = 960  # medium size video dimension of the long side (usually width)
 MD_TARGET_SIZE_KB = 3 * 1024  # medium size video target size
 MD_WITH_AUDIO_TARGET_SIZE_KB = 6 * 1024  # medium size video w/ audio target size
 MD_CRF = 9
-MD_AUDIO_QSCALE = 4
+MD_AUDIO_QSCALE = 3
 
 MAX_TRY = 5
 MAX_BIT_RATE_MULT = 4
@@ -111,6 +111,15 @@ def generate_target_file_path(source_path):
     return resolve_file_name_conflict(source_path, tentative_target_path)
 
 
+def get_vorbis_target_bitrate_kbps(qscale):
+    if qscale < 4:
+        return 16 * (qscale + 4)
+    elif qscale < 8:
+        return 32 * qscale
+    else:
+        return 64 * (qscale - 4)
+
+
 def get_target_video_dimension(source_width, source_height):
     n_width, n_height = [source_width, source_height]
 
@@ -139,7 +148,7 @@ def generate_ffmpeg_options(
     file_format_info=None,
     include_audio=False,
     audio_qscale_adjust=0,
-    target_size=None,
+    target_size_kb=None,
     preset="medium",
     video_bitrate=None,
     video_bitrate_mult=1.0,
@@ -179,14 +188,37 @@ def generate_ffmpeg_options(
         options.append("-vf")
         options.append(f"scale={n_width}:{n_height}")
 
-    target_bitrate = video_bitrate or floor(
-        MD_TARGET_SIZE_KB / duration * 8 * 1000 * video_bitrate_mult
-    )
+    # if not include_audio:
+    #     target_bitrate = video_bitrate or floor(
+    #         MD_TARGET_SIZE_KB / duration * 8 * 1000 * video_bitrate_mult
+    #     )
+    # else:
+    #     target_bit_rate = video_bitrate or
+
+    target_size_kb = MD_TARGET_SIZE_KB if not target_size_kb else target_size_kb
+
+    target_video_bitrate = None
+
+    if video_bitrate:
+        target_video_bitrate = video_bitrate
+    else:
+        target_video_size = target_size_kb
+        if include_audio:
+            target_audio_bitrate_kbps = get_vorbis_target_bitrate_kbps(
+                MD_AUDIO_QSCALE + audio_qscale_adjust
+            )
+            target_video_size = target_size_kb - (target_audio_bitrate_kbps * duration / 8)
+
+        target_video_bitrate = floor(
+            target_video_size / duration * 8 * 1000 * video_bitrate_mult
+        )
+        
+
     options.append("-b:v")
-    options.append(f"{target_bitrate}")
+    options.append(f"{target_video_bitrate}")
 
     options.append("-maxrate")
-    options.append(f"{target_bitrate * MAX_BIT_RATE_MULT}")
+    options.append(f"{target_video_bitrate * MAX_BIT_RATE_MULT}")
 
     options.append("-crf")
     options.append(f"{MD_CRF + crf_adjust}")
@@ -448,7 +480,7 @@ def two_pass_transcode_file(
             audio_info=audio_info,
             file_format_info=file_format_info,
             include_audio=include_audio,
-            target_size=target_size,
+            target_size_kb=target_size,
             pass_no=1,
             preset=preset,
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
@@ -476,7 +508,7 @@ def two_pass_transcode_file(
             audio_info=audio_info,
             file_format_info=file_format_info,
             include_audio=include_audio,
-            target_size=target_size,
+            target_size_kb=target_size,
             pass_no=2,
             preset=preset,
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
@@ -527,7 +559,7 @@ def two_pass_transcode_file(
         try_no += 1
 
 
-def two_pass_transcode(input_path, audio=False, size=None):
+def two_pass_transcode(input_path, include_audio=False, size=None):
     media_info = probe_file(input_path)
     video_info = get_stream(media_info, "video")
     audio_info = get_stream(media_info, "audio")
@@ -541,7 +573,7 @@ def two_pass_transcode(input_path, audio=False, size=None):
             audio_info=audio_info,
             file_format_info=file_format_info,
             aux_info=aux_info,
-            include_audio=audio,
+            include_audio=include_audio,
         )
 
     return None
@@ -586,4 +618,4 @@ if __name__ == "__main__":
         )
         exit(-1)
 
-    two_pass_transcode(args.input_video_file, audio=args.audio, size=args.size)
+    two_pass_transcode(args.input_video_file, include_audio=args.audio, size=args.size)
