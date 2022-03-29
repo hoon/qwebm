@@ -573,6 +573,12 @@ def two_pass_transcode_file(
 
 def two_pass_transcode(input_path, include_audio=False, size=None):
     media_info = probe_file(input_path)
+    if "streams" not in media_info or "format" not in media_info:
+        print(
+            f"ffprobe failed to read information from the file '{input_path}'. "
+            "Please check if the file is a valid video file."
+        )
+        return None
     video_info = get_stream(media_info, "video")
     audio_info = get_stream(media_info, "audio")
     file_format_info = media_info["format"]
