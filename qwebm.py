@@ -188,13 +188,6 @@ def generate_ffmpeg_options(
         options.append("-vf")
         options.append(f"scale={n_width}:{n_height}")
 
-    # if not include_audio:
-    #     target_bitrate = video_bitrate or floor(
-    #         MD_TARGET_SIZE_KB / duration * 8 * 1000 * video_bitrate_mult
-    #     )
-    # else:
-    #     target_bit_rate = video_bitrate or
-
     target_size_kb = MD_TARGET_SIZE_KB if not target_size_kb else target_size_kb
 
     target_video_bitrate = None
@@ -207,12 +200,13 @@ def generate_ffmpeg_options(
             target_audio_bitrate_kbps = get_vorbis_target_bitrate_kbps(
                 MD_AUDIO_QSCALE + audio_qscale_adjust
             )
-            target_video_size = target_size_kb - (target_audio_bitrate_kbps * duration / 8)
+            target_video_size = target_size_kb - (
+                target_audio_bitrate_kbps * duration / 8
+            )
 
         target_video_bitrate = floor(
             target_video_size / duration * 8 * 1000 * video_bitrate_mult
         )
-        
 
     options.append("-b:v")
     options.append(f"{target_video_bitrate}")
@@ -363,10 +357,20 @@ async def run_ffmpeg(video_info, ffmpeg_args, file_format_info=None, aux_info=No
             p_size_matches = progress_size_pattern.findall(err_str)
             p_time_matches = progress_time_pattern.findall(err_str)
 
+            # 'Lsize=' is printed at the final progress update output
+            if err_str.find("Lsize=") >= 0:
+                progress_pct = 100
+
             if p_ff_matches:
                 if "nb_frames" in video_info:
-                    progress_pct = round(
-                        int(p_ff_matches[0][0]) / int(video_info["nb_frames"]) * 100, 1
+                    progress_pct = max(
+                        round(
+                            int(p_ff_matches[0][0])
+                            / int(video_info["nb_frames"])
+                            * 100,
+                            1,
+                        ),
+                        progress_pct,
                     )
 
                 if p_size_matches:
@@ -384,17 +388,25 @@ async def run_ffmpeg(video_info, ffmpeg_args, file_format_info=None, aux_info=No
                         and duration_sec is not None
                         and duration_sec > 0
                     ):
-                        progress_pct = round(
-                            current_timecode_sec / duration_sec * 100,
-                            1,
+                        progress_pct = max(
+                            round(
+                                current_timecode_sec / duration_sec * 100,
+                                1,
+                            ),
+                            progress_pct,
                         )
 
                     if progress_pct > 0 and current_timecode_sec > 0:
-                        print(
-                            f"\r * {progress_pct:.2f}% done; file up to {total_kb} kB; "
-                            f"video time up to {progress_timecode} ",
-                            end="",
-                        )
+                        progress_str = f"\r * {progress_pct:.2f}% done"
+                        if total_kb > 0:
+                            progress_str += f"; file up to {total_kb} kB"
+
+                        if progress_timecode != "00:00:00.00":
+                            progress_str += f"; video time up to {progress_timecode}"
+
+                        progress_str += " "
+
+                        print(progress_str, end="")
                     else:
                         print(f"\r * {progress_pct:.2f}% done ", end="")
 
