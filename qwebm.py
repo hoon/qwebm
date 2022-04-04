@@ -484,6 +484,9 @@ def two_pass_transcode_file(
         "crf_adjust": 0,
         "audio_qscale_adjust": 0,
     }
+
+    encode_result = []
+
     while try_no <= MAX_TRY and output_size_kb >= MD_TARGET_SIZE_KB:
 
         ffmpeg_options_pass_1 = generate_ffmpeg_options(
@@ -539,17 +542,25 @@ def two_pass_transcode_file(
 
         logger.info(f"\npass 2 result: {pass_2_result}")
 
+        encode_result = [pass_1_result, pass_2_result]
+
         output_size_kb = pass_2_result["total_kb"]
         output_video_kb = pass_2_result["video_kb"]
 
         output_path = pass_2_result["output_path"]
         if output_size_kb >= MD_TARGET_SIZE_KB:
-            try:
-                os.remove(output_path)
-            except:
-                logger.warning(
-                    f"Could not delete {output_path}, "
-                    "output that failed to meet size requirement."
+            if try_no < MAX_TRY:
+                try:
+                    os.remove(output_path)
+                except:
+                    logger.warning(
+                        f"Could not delete {output_path}, "
+                        "output that failed to meet size requirement."
+                    )
+            else:
+                print(
+                    "Output file size exceeded target, but maximum "
+                    f"try of {MAX_TRY} has been reached."
                 )
 
         old_video_bit_rate = ffmpeg_options_pass_2[
@@ -570,6 +581,8 @@ def two_pass_transcode_file(
 
         try_no += 1
 
+    return encode_result
+
 
 def two_pass_transcode(input_path, include_audio=False, size=None):
     media_info = probe_file(input_path)
@@ -585,7 +598,8 @@ def two_pass_transcode(input_path, include_audio=False, size=None):
     aux_info = compute_aux_info(media_info)
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        two_pass_transcode_file(
+        print(f"Input path: {input_path}")
+        result = two_pass_transcode_file(
             input_path,
             video_info,
             audio_info=audio_info,
@@ -593,6 +607,9 @@ def two_pass_transcode(input_path, include_audio=False, size=None):
             aux_info=aux_info,
             include_audio=include_audio,
         )
+        if result and isinstance(result, list) and "output_path" in result[-1]:
+            output_path = result[-1]["output_path"]
+            print(f"Output path: {output_path}")
 
     return None
 
