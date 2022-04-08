@@ -120,6 +120,31 @@ def get_vorbis_target_bitrate_kbps(qscale):
         return 64 * (qscale - 4)
 
 
+# receives strings like "2700 kb" or "3.5 MB" or "3145728"
+def get_target_size_in_bytes(target_size_str):
+    tstr = str(target_size_str).strip()
+    size_pattern = re.compile("(^[\d\.]+)\s*(\w*)")
+    results = size_pattern.match(tstr)
+
+    if not results:
+        return None
+
+    size_num = float(results[1])
+    unit_str = results[2].strip().lower()
+
+    multiplier = 1
+    if unit_str[0] == "k":
+        multiplier = 1024
+    elif unit_str[0] == "m":
+        multiplier = 1024 ** 2
+    elif unit_str[0] == "g":
+        multiplier = 1024 ** 3
+    elif unit_str[0] == "t":
+        multiplier = 1024 ** 4
+
+    return size_num * multiplier
+
+
 def get_target_video_dimension(source_width, source_height):
     n_width, n_height = [source_width, source_height]
 
@@ -188,7 +213,7 @@ def generate_ffmpeg_options(
         options.append("-vf")
         options.append(f"scale={n_width}:{n_height}")
 
-    target_size_kb = MD_TARGET_SIZE_KB if not target_size_kb else target_size_kb
+    target_size_kb = target_size_kb if target_size_kb else MD_TARGET_SIZE_KB
 
     target_video_bitrate = None
 
@@ -474,10 +499,11 @@ def two_pass_transcode_file(
     file_format_info=None,
     aux_info=None,
     include_audio=False,
-    target_size=None,
+    target_file_size=None,
     preset="medium",
 ):
-    output_size_kb = MD_TARGET_SIZE_KB + 1
+    target_file_size_kb = target_file_size / 1024 if target_file_size else MD_TARGET_SIZE_KB
+    output_size_kb = target_file_size_kb + 1
     try_no = 1
     ffmpeg_options_adjustments = {
         "video_bitrate": None,
@@ -487,7 +513,7 @@ def two_pass_transcode_file(
 
     encode_result = []
 
-    while try_no <= MAX_TRY and output_size_kb >= MD_TARGET_SIZE_KB:
+    while try_no <= MAX_TRY and output_size_kb >= target_file_size_kb:
 
         ffmpeg_options_pass_1 = generate_ffmpeg_options(
             video_info,
@@ -495,7 +521,7 @@ def two_pass_transcode_file(
             audio_info=audio_info,
             file_format_info=file_format_info,
             include_audio=include_audio,
-            target_size_kb=target_size,
+            target_size_kb=target_file_size_kb,
             pass_no=1,
             preset=preset,
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
@@ -523,7 +549,7 @@ def two_pass_transcode_file(
             audio_info=audio_info,
             file_format_info=file_format_info,
             include_audio=include_audio,
-            target_size_kb=target_size,
+            target_size_kb=target_file_size_kb,
             pass_no=2,
             preset=preset,
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
@@ -548,7 +574,7 @@ def two_pass_transcode_file(
         output_video_kb = pass_2_result["video_kb"]
 
         output_path = pass_2_result["output_path"]
-        if output_size_kb >= MD_TARGET_SIZE_KB:
+        if output_size_kb >= target_file_size_kb:
             if try_no < MAX_TRY:
                 try:
                     os.remove(output_path)
@@ -569,7 +595,7 @@ def two_pass_transcode_file(
 
         new_video_bitrate = round(
             int(old_video_bit_rate)
-            * (output_video_kb - (output_size_kb - MD_TARGET_SIZE_KB))
+            * (output_video_kb - (output_size_kb - target_file_size_kb))
             / output_video_kb
         )
 
@@ -584,7 +610,7 @@ def two_pass_transcode_file(
     return encode_result
 
 
-def two_pass_transcode(input_path, include_audio=False, size=None):
+def two_pass_transcode(input_path, include_audio=False, target_file_size=None):
     media_info = probe_file(input_path)
     if "streams" not in media_info or "format" not in media_info:
         print(
@@ -606,6 +632,7 @@ def two_pass_transcode(input_path, include_audio=False, size=None):
             file_format_info=file_format_info,
             aux_info=aux_info,
             include_audio=include_audio,
+            target_file_size=target_file_size,
         )
         if result and isinstance(result, list) and "output_path" in result[-1]:
             output_path = result[-1]["output_path"]
@@ -638,8 +665,13 @@ if __name__ == "__main__":
 
     parser.add_argument("-a", "--audio", action="store_true", help="include audio")
     parser.add_argument(
-        "-s", "--size", action="store", type=int, help="target size in kB"
+        "-s",
+        "--size",
+        action="store",
+        help="target file size (e.g. 3 MB, 600 KB); "
+        "assumes KB if only numbers provided; defaults to 3 MB",
     )
+
     parser.add_argument("input_video_file")
     args = parser.parse_args()
 
@@ -653,4 +685,10 @@ if __name__ == "__main__":
         )
         exit(-1)
 
-    two_pass_transcode(args.input_video_file, include_audio=args.audio, size=args.size)
+    target_file_size = get_target_size_in_bytes(args.size)
+
+    two_pass_transcode(
+        args.input_video_file,
+        include_audio=args.audio,
+        target_file_size=target_file_size,
+    )
