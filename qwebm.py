@@ -136,11 +136,11 @@ def get_target_size_in_bytes(target_size_str):
     if unit_str[0] == "k":
         multiplier = 1024
     elif unit_str[0] == "m":
-        multiplier = 1024 ** 2
+        multiplier = 1024**2
     elif unit_str[0] == "g":
-        multiplier = 1024 ** 3
+        multiplier = 1024**3
     elif unit_str[0] == "t":
-        multiplier = 1024 ** 4
+        multiplier = 1024**4
 
     return size_num * multiplier
 
@@ -502,7 +502,9 @@ def two_pass_transcode_file(
     target_file_size=None,
     preset="medium",
 ):
-    target_file_size_kb = target_file_size / 1024 if target_file_size else MD_TARGET_SIZE_KB
+    target_file_size_kb = (
+        target_file_size / 1024 if target_file_size else MD_TARGET_SIZE_KB
+    )
     output_size_kb = target_file_size_kb + 1
     try_no = 1
     ffmpeg_options_adjustments = {
