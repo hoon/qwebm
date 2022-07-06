@@ -145,6 +145,34 @@ def get_target_size_in_bytes(target_size_str):
     return size_num * multiplier
 
 
+# receives strings like "640:382", "720p", "1080p"
+def get_video_dimension(vid_dimension_str):
+    tstr = str(vid_dimension_str).strip()
+    dim_pattern = re.compile("(\d+)([p:])(\d+){0,}")
+    results = dim_pattern.match(tstr)
+
+    if not results:
+        return None
+    try:
+        first_num = int(results[1])
+
+        p_or_colon = str(results[2])
+
+        second_num = 0
+
+        if p_or_colon == ":":
+            second_num = int(results[3])
+        elif p_or_colon == "p":
+            second_num = int(first_num / 9 * 16)
+
+        return first_num, second_num
+
+    except:
+        logger.exception(f"Failed to parse video dimension number")
+
+    return None
+
+
 def get_target_video_dimension(source_width, source_height):
     n_width, n_height = [source_width, source_height]
 
@@ -672,6 +700,13 @@ if __name__ == "__main__":
         action="store",
         help="target file size (e.g. 3 MB, 600 KB); "
         "assumes KB if only numbers provided; defaults to 3 MB",
+    )
+
+    parser.add_argument(
+        "--dim",
+        "--fit-dimension",
+        help="resize video to fit into the specified dimension "
+        "e.g. 640:382, 720p, 1080p",
     )
 
     parser.add_argument("input_video_file")
