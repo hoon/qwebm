@@ -203,6 +203,7 @@ def generate_ffmpeg_options(
     audio_qscale_adjust=0,
     target_size_kb=None,
     preset="medium",
+    video_codec=None,
     video_bitrate=None,
     video_bitrate_mult=1.0,
     crf_adjust=0,
@@ -233,7 +234,11 @@ def generate_ffmpeg_options(
             new_target_path = generate_target_file_path(source_path)
 
     options.append("-c:v")
-    options.append("libvpx")
+    if video_codec == "vp9":
+        options.append("libvpx-vp9")
+    else:
+        options.append("libvpx")
+
     options.append("-sn")
     options.append("-dn")
 
@@ -528,6 +533,7 @@ def two_pass_transcode_file(
     aux_info=None,
     include_audio=False,
     target_file_size=None,
+    video_codec=None,
     preset="medium",
 ):
     target_file_size_kb = (
@@ -554,6 +560,7 @@ def two_pass_transcode_file(
             target_size_kb=target_file_size_kb,
             pass_no=1,
             preset=preset,
+            video_codec=video_codec,
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
             crf_adjust=ffmpeg_options_adjustments["crf_adjust"],
             audio_qscale_adjust=ffmpeg_options_adjustments["audio_qscale_adjust"],
@@ -582,6 +589,7 @@ def two_pass_transcode_file(
             target_size_kb=target_file_size_kb,
             pass_no=2,
             preset=preset,
+            video_codec=video_codec,
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
             crf_adjust=ffmpeg_options_adjustments["crf_adjust"],
             audio_qscale_adjust=ffmpeg_options_adjustments["audio_qscale_adjust"],
@@ -640,7 +648,9 @@ def two_pass_transcode_file(
     return encode_result
 
 
-def two_pass_transcode(input_path, include_audio=False, target_file_size=None):
+def two_pass_transcode(
+    input_path, include_audio=False, video_codec=None, target_file_size=None
+):
     media_info = probe_file(input_path)
     if "streams" not in media_info or "format" not in media_info:
         print(
@@ -663,6 +673,7 @@ def two_pass_transcode(input_path, include_audio=False, target_file_size=None):
             aux_info=aux_info,
             include_audio=include_audio,
             target_file_size=target_file_size,
+            video_codec=video_codec,
         )
         if result and isinstance(result, list) and "output_path" in result[-1]:
             output_path = result[-1]["output_path"]
@@ -709,6 +720,14 @@ if __name__ == "__main__":
         "e.g. 640:382, 720p, 1080p",
     )
 
+    parser.add_argument(
+        "--cv",
+        "--video-codec",
+        choices=["vp9", "vp8"],
+        default="vp8",
+        help="specify video codec to use; valid codecs are vp8 and vp9 (default vp8)",
+    )
+
     parser.add_argument("input_video_file")
     args = parser.parse_args()
 
@@ -727,5 +746,6 @@ if __name__ == "__main__":
     two_pass_transcode(
         args.input_video_file,
         include_audio=args.audio,
+        video_codec=args.cv,
         target_file_size=target_file_size,
     )
