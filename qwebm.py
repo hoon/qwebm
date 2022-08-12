@@ -145,7 +145,7 @@ def get_target_size_in_bytes(target_size_str):
 
 
 # receives strings like "640:382", "720p", "1080p"
-def get_video_dimension(vid_dimension_str):
+def parse_video_dimension_str(vid_dimension_str):
     tstr = str(vid_dimension_str).strip()
     dim_pattern = re.compile("(\d+)([p:])(\d+){0,}")
     results = dim_pattern.match(tstr)
@@ -162,9 +162,10 @@ def get_video_dimension(vid_dimension_str):
         if p_or_colon == ":":
             second_num = int(results[3])
         elif p_or_colon == "p":
-            second_num = int(first_num / 9 * 16)
+            first_num = int(first_num / 9 * 16)
+            second_num = int(results[1])
 
-        return first_num, second_num
+        return [first_num, second_num]
 
     except:
         logger.exception(f"Failed to parse video dimension number")
@@ -172,18 +173,26 @@ def get_video_dimension(vid_dimension_str):
     return None
 
 
-def get_target_video_dimension(source_width, source_height):
+def get_target_video_dimension(source_width, source_height, fit_dimensions=None):
     n_width, n_height = [source_width, source_height]
 
+    target_long = MD_LONG
+
+
+    if fit_dimensions is not None and isinstance(fit_dimensions, list):
+        fit_dimensions.sort()
+        _, target_long = fit_dimensions
+
+
     is_vertical = source_height > source_width
-    if max(source_width, source_height) > MD_LONG * 1.2:
+    if max(source_width, source_height) > target_long:
         if not is_vertical:
-            n_width = MD_LONG
+            n_width = target_long
             n_height = (
                 round((source_height / source_width * n_width) / DIM_MULT) * DIM_MULT
             )
         else:
-            n_height = MD_LONG
+            n_height = target_long
             n_width = (
                 round((source_width / source_height * n_height) / DIM_MULT) * DIM_MULT
             )
@@ -201,6 +210,7 @@ def generate_ffmpeg_options(
     include_audio=False,
     audio_qscale_adjust=0,
     target_size_kb=None,
+    target_video_dimensions=None,
     preset="medium",
     video_codec=None,
     video_bitrate=None,
@@ -219,7 +229,7 @@ def generate_ffmpeg_options(
         else file_format_info["duration"]
     )
 
-    n_width, n_height = get_target_video_dimension(width, height)
+    n_width, n_height = target_video_dimensions[0], target_video_dimensions[1]
 
     options = []
 
@@ -532,12 +542,17 @@ def two_pass_transcode_file(
     aux_info=None,
     include_audio=False,
     target_file_size=None,
+    target_video_fit_dimensions=None,
     video_codec=None,
     preset="medium",
 ):
     target_file_size_kb = (
         target_file_size / 1024 if target_file_size else MD_TARGET_SIZE_KB
     )
+
+    [width, height] = map(int, itemgetter("width", "height")(video_info))
+    target_video_dimensions = get_target_video_dimension(width, height, fit_dimensions=target_video_fit_dimensions)
+
     output_size_kb = target_file_size_kb + 1
     try_no = 1
     ffmpeg_options_adjustments = {
@@ -560,6 +575,7 @@ def two_pass_transcode_file(
             pass_no=1,
             preset=preset,
             video_codec=video_codec,
+            target_video_dimensions=target_video_dimensions,
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
             crf_adjust=ffmpeg_options_adjustments["crf_adjust"],
             audio_qscale_adjust=ffmpeg_options_adjustments["audio_qscale_adjust"],
@@ -589,6 +605,7 @@ def two_pass_transcode_file(
             pass_no=2,
             preset=preset,
             video_codec=video_codec,
+            target_video_dimensions=target_video_dimensions,
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
             crf_adjust=ffmpeg_options_adjustments["crf_adjust"],
             audio_qscale_adjust=ffmpeg_options_adjustments["audio_qscale_adjust"],
@@ -648,7 +665,11 @@ def two_pass_transcode_file(
 
 
 def two_pass_transcode(
-    input_path, include_audio=False, video_codec=None, target_file_size=None
+    input_path,
+    include_audio=False,
+    video_codec=None,
+    target_file_size=None,
+    target_video_fit_dimensions=None,
 ):
     media_info = probe_file(input_path)
     if "streams" not in media_info or "format" not in media_info:
@@ -672,6 +693,7 @@ def two_pass_transcode(
             aux_info=aux_info,
             include_audio=include_audio,
             target_file_size=target_file_size,
+            target_video_fit_dimensions=target_video_fit_dimensions,
             video_codec=video_codec,
         )
         if result and isinstance(result, list) and "output_path" in result[-1]:
@@ -741,10 +763,12 @@ if __name__ == "__main__":
         exit(-1)
 
     target_file_size = get_target_size_in_bytes(args.size)
+    target_fit_dimensions = parse_video_dimension_str(args.dim)
 
     two_pass_transcode(
         args.input_video_file,
         include_audio=args.audio,
         video_codec=args.cv,
         target_file_size=target_file_size,
+        target_video_fit_dimensions=target_fit_dimensions,
     )
