@@ -178,11 +178,9 @@ def get_target_video_dimension(source_width, source_height, fit_dimensions=None)
 
     target_long = MD_LONG
 
-
     if fit_dimensions is not None and isinstance(fit_dimensions, list):
         fit_dimensions.sort()
         _, target_long = fit_dimensions
-
 
     is_vertical = source_height > source_width
     if max(source_width, source_height) > target_long:
@@ -551,7 +549,9 @@ def two_pass_transcode_file(
     )
 
     [width, height] = map(int, itemgetter("width", "height")(video_info))
-    target_video_dimensions = get_target_video_dimension(width, height, fit_dimensions=target_video_fit_dimensions)
+    target_video_dimensions = get_target_video_dimension(
+        width, height, fit_dimensions=target_video_fit_dimensions
+    )
 
     output_size_kb = target_file_size_kb + 1
     try_no = 1
@@ -731,7 +731,7 @@ if __name__ == "__main__":
         "--size",
         action="store",
         help="target file size (e.g. 3 MB, 600 KB); "
-        "assumes KB if only numbers provided; defaults to 3 MB",
+        "assumes KB if only numbers provided; defaults to 6 MB",
     )
 
     parser.add_argument(
