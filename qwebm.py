@@ -15,8 +15,7 @@ import time
 
 DIM_MULT = 4  # the number the dimensions should be divisible by; improves playback compatibility
 MD_LONG = 960  # medium size video dimension of the long side (usually width)
-MD_TARGET_SIZE_KB = 3 * 1024  # medium size video target size
-MD_WITH_AUDIO_TARGET_SIZE_KB = 6 * 1024  # medium size video w/ audio target size
+MD_TARGET_SIZE_KB = 6 * 1024  # medium size video target size
 MD_CRF = 9
 MD_AUDIO_QSCALE = 3
 
