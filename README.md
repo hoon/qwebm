@@ -1,7 +1,7 @@
 # qwebm - work in progress
 
 ## Description
-A wrapper for ffmpeg that makes two-pass encoding easier. Will only convert to WebM container format.
+A script that makes ffmpeg two-pass encoding easier. Will only convert to WebM container format.
 
 ## Usage
 Simple usage with default options:
