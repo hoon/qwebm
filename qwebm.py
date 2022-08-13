@@ -201,6 +201,9 @@ def get_target_video_dimension(source_width, source_height, fit_dimensions=None)
     return n_width, n_height
 
 
+def get_formatted_ffmpeg_cmd(ffmpeg_args):
+    return f"ffmpeg {' '.join(ffmpeg_args)}"
+
 def generate_ffmpeg_options(
     video_info,
     audio_info=None,
@@ -543,6 +546,8 @@ def two_pass_transcode_file(
     target_video_fit_dimensions=None,
     video_codec=None,
     preset="medium",
+    print_arguments=False,
+    no_execute=False,
 ):
     target_file_size_kb = (
         target_file_size / 1024 if target_file_size else MD_TARGET_SIZE_KB
@@ -565,6 +570,9 @@ def two_pass_transcode_file(
 
     while try_no <= MAX_TRY and output_size_kb >= target_file_size_kb:
 
+        print(f"Try {try_no}:")
+        print(f"Pass 1 of 2:")
+
         ffmpeg_options_pass_1 = generate_ffmpeg_options(
             video_info,
             source_path=source_path,
@@ -580,19 +588,22 @@ def two_pass_transcode_file(
             crf_adjust=ffmpeg_options_adjustments["crf_adjust"],
             audio_qscale_adjust=ffmpeg_options_adjustments["audio_qscale_adjust"],
         )
-
-        print(f"Try {try_no}:")
-        print(f"Pass 1 of 2:")
         logger.info(f"Options: {ffmpeg_options_pass_1}")
-        pass_1_result = asyncio.run(
-            run_ffmpeg(
-                video_info,
-                ffmpeg_options_pass_1,
-                file_format_info=file_format_info,
-                aux_info=aux_info,
+
+        if print_arguments:
+            print(get_formatted_ffmpeg_cmd(ffmpeg_options_pass_1))
+
+        pass_1_result = None
+        if not no_execute:
+            pass_1_result = asyncio.run(
+                run_ffmpeg(
+                    video_info,
+                    ffmpeg_options_pass_1,
+                    file_format_info=file_format_info,
+                    aux_info=aux_info,
+                )
             )
-        )
-        logger.info(f"pass 1 result: {pass_1_result}")
+            logger.info(f"pass 1 result: {pass_1_result}")
 
         print(f"Pass 2 of 2:")
         ffmpeg_options_pass_2 = generate_ffmpeg_options(
@@ -611,16 +622,24 @@ def two_pass_transcode_file(
             audio_qscale_adjust=ffmpeg_options_adjustments["audio_qscale_adjust"],
         )
         logger.info(f"Options: {ffmpeg_options_pass_2}")
-        pass_2_result = asyncio.run(
-            run_ffmpeg(
-                video_info,
-                ffmpeg_options_pass_2,
-                file_format_info=file_format_info,
-                aux_info=aux_info,
-            )
-        )
 
-        logger.info(f"\npass 2 result: {pass_2_result}")
+        if print_arguments:
+            print(get_formatted_ffmpeg_cmd(ffmpeg_options_pass_2))
+
+        pass_2_result = None
+        if not no_execute:
+            pass_2_result = asyncio.run(
+                run_ffmpeg(
+                    video_info,
+                    ffmpeg_options_pass_2,
+                    file_format_info=file_format_info,
+                    aux_info=aux_info,
+                )
+            )
+            logger.info(f"\npass 2 result: {pass_2_result}")
+
+        if no_execute:
+            return None
 
         encode_result = [pass_1_result, pass_2_result]
 
@@ -670,6 +689,8 @@ def two_pass_transcode(
     video_codec=None,
     target_file_size=None,
     target_video_fit_dimensions=None,
+    print_arguments=False,
+    no_execute=False,
 ):
     media_info = probe_file(input_path)
     if "streams" not in media_info or "format" not in media_info:
@@ -695,6 +716,8 @@ def two_pass_transcode(
             target_file_size=target_file_size,
             target_video_fit_dimensions=target_video_fit_dimensions,
             video_codec=video_codec,
+            print_arguments=print_arguments,
+            no_execute=no_execute,
         )
         if result and isinstance(result, list) and "output_path" in result[-1]:
             output_path = result[-1]["output_path"]
@@ -726,6 +749,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("-a", "--audio", action="store_true", help="include audio")
+
     parser.add_argument(
         "-s",
         "--size",
@@ -749,6 +773,15 @@ if __name__ == "__main__":
         help="specify video codec to use; valid codecs are vp8 and vp9 (default vp8)",
     )
 
+    parser.add_argument(
+        "--print-args",
+        "--pargs",
+        action="store_true",
+        help="print arguments passed to ffmpeg",
+    )
+
+    parser.add_argument("--nx", action="store_true", help="do not execute ffmpeg")
+
     parser.add_argument("input_video_file")
     args = parser.parse_args()
 
@@ -771,4 +804,6 @@ if __name__ == "__main__":
         video_codec=args.cv,
         target_file_size=target_file_size,
         target_video_fit_dimensions=target_fit_dimensions,
+        print_arguments=args.print_args,
+        no_execute=args.nx,
     )
