@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from ast import arg
 from math import floor
 from os import path
