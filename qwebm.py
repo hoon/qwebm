@@ -123,7 +123,7 @@ def get_vorbis_target_bitrate_kbps(qscale):
 # receives strings like "2700 kb" or "3.5 MB" or "3145728"
 def get_target_size_in_bytes(target_size_str):
     tstr = str(target_size_str).strip()
-    size_pattern = re.compile("(^[\d\.]+)\s*(\w*)")
+    size_pattern = re.compile(r"(^[\d\.]+)\s*(\w*)")
     results = size_pattern.match(tstr)
 
     if not results:
@@ -148,7 +148,7 @@ def get_target_size_in_bytes(target_size_str):
 # receives strings like "640:382", "720p", "1080p"
 def parse_video_dimension_str(vid_dimension_str):
     tstr = str(vid_dimension_str).strip()
-    dim_pattern = re.compile("(\d+)([p:])(\d+){0,}")
+    dim_pattern = re.compile(r"(\d+)([p:])(\d+){0,}")
     results = dim_pattern.match(tstr)
 
     if not results:
@@ -205,6 +205,7 @@ def get_target_video_dimension(source_width, source_height, fit_dimensions=None)
 def get_formatted_ffmpeg_cmd(ffmpeg_args):
     return f"ffmpeg {' '.join(ffmpeg_args)}"
 
+
 def generate_ffmpeg_options(
     video_info,
     audio_info=None,
@@ -222,7 +223,6 @@ def generate_ffmpeg_options(
     source_path=None,
     target_path=None,
 ):
-
     [width, height] = map(int, itemgetter("width", "height")(video_info))
     codec_name = video_info["codec_name"]
     duration = float(
@@ -328,7 +328,7 @@ def get_stream(media_info, codec_type):
 
 
 def convert_timestamp_to_sec(timestamp_str):
-    timestamp_pattern = re.compile("(\d{2}):(\d{2}):(\d{2}).(\d+)")
+    timestamp_pattern = re.compile(r"(\d{2}):(\d{2}):(\d{2}).(\d+)")
     ts_matches = timestamp_pattern.findall(timestamp_str)
 
     if len(ts_matches) < 1:
@@ -378,12 +378,12 @@ async def run_ffmpeg(video_info, ffmpeg_args, file_format_info=None, aux_info=No
     # video:1045kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 0.370684%
     # example pass 1
     # frame= 1184 fps=185 q=0.0 Lsize=N/A time=00:00:39.49 bitrate=N/A speed=6.18x
-    progress_frame_fps_pattern = re.compile("frame=\s*(\d+) fps=\s*(\d+)")
-    progress_size_pattern = re.compile("size=\s*(\d+)kB")
-    progress_time_pattern = re.compile("time=(\d{2}:\d{2}:\d{2}.\d{2})")
+    progress_frame_fps_pattern = re.compile(r"frame=\s*(\d+) fps=\s*(\d+)")
+    progress_size_pattern = re.compile(r"size=\s*(\d+)kB")
+    progress_time_pattern = re.compile(r"time=(\d{2}:\d{2}:\d{2}.\d{2})")
     summary_pattern = re.compile(
-        "video:(\d+)kB audio:(\d+)kB subtitle:(\d+)kB other streams:(\d+)kB "
-        "global headers:(\d+)kB muxing overhead: (\d+\.\d+)%"
+        r"video:(\d+)kB audio:(\d+)kB subtitle:(\d+)kB other streams:(\d+)kB "
+        r"global headers:(\d+)kB muxing overhead: (\d+\.\d+)%"
     )
 
     err_buf = bytearray()
@@ -570,7 +570,6 @@ def two_pass_transcode_file(
     encode_result = []
 
     while try_no <= MAX_TRY and output_size_kb >= target_file_size_kb:
-
         print(f"Try {try_no}:")
         print(f"Pass 1 of 2:")
 
