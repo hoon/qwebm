@@ -378,21 +378,22 @@ async def run_ffmpeg(video_info, ffmpeg_args, file_format_info=None, aux_info=No
     # video:1045kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 0.370684%
     # example pass 1
     # frame= 1184 fps=185 q=0.0 Lsize=N/A time=00:00:39.49 bitrate=N/A speed=6.18x
+    # example FFMPEG v7.x pass 2 output:
+    # video:9892KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.019873%
+    # frame=  168 fps=2.1 q=24.0 Lsize=    9894KiB time=00:00:05.60 bitrate=14473.1kbits/s speed=0.0713x
     progress_frame_fps_pattern = re.compile(r"frame=\s*(\d+) fps=\s*(\d+)")
     progress_size_pattern = re.compile(r"size=\s*(\d+)kB")
     progress_time_pattern = re.compile(r"time=(\d{2}:\d{2}:\d{2}.\d{2})")
     summary_pattern = re.compile(
-        r"video:(\d+)kB audio:(\d+)kB subtitle:(\d+)kB other streams:(\d+)kB "
-        r"global headers:(\d+)kB muxing overhead: (\d+\.\d+)%"
+        r"video:(\d+)[kK]i?B audio:(\d+)[kK]i?B subtitle:(\d+)[kK]i?B other streams:(\d+)[kK]i?B "
+        r"global headers:(\d+)[kK]i?B muxing overhead: (\d+\.\d+)%"
     )
 
     err_buf = bytearray()
 
-    total_kb = (
-        video_kb
-    ) = (
-        audio_kb
-    ) = subtitle_kb = other_streams_kb = global_headers_kb = mux_overhead_pct = 0
+    total_kb = video_kb = audio_kb = subtitle_kb = other_streams_kb = (
+        global_headers_kb
+    ) = mux_overhead_pct = 0
     progress_timecode = None
     progress_pct = 0
     progress_end_newline_printed = False
@@ -491,6 +492,8 @@ async def run_ffmpeg(video_info, ffmpeg_args, file_format_info=None, aux_info=No
             else:
                 logger.debug(f"progress output pattern not matched:\n{err_str}")
                 s_matches = summary_pattern.findall(err_str)
+
+                logger.debug(f'FFMPEG summary output regex: {s_matches}')
 
                 if not progress_end_newline_printed:
                     if len(s_matches) > 0:
