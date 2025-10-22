@@ -608,6 +608,7 @@ def two_pass_transcode_file(
             )
             logger.info(f"pass 1 result: {pass_1_result}")
 
+        print("") # New line
         print(f"Pass 2 of 2:")
         ffmpeg_options_pass_2 = generate_ffmpeg_options(
             video_info,
