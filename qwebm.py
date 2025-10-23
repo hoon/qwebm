@@ -782,8 +782,8 @@ if __name__ == "__main__":
         "--cv",
         "--video-codec",
         choices=["vp9", "vp8"],
-        default="vp8",
-        help="specify video codec to use; valid codecs are vp8 and vp9 (default vp8)",
+        default="vp9",
+        help="specify video codec to use; valid codecs are vp8 and vp9 (default vp9)",
     )
 
     parser.add_argument(
