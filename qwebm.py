@@ -466,7 +466,9 @@ async def run_ffmpeg(video_info, ffmpeg_args, file_format_info=None, aux_info=No
                             progress_pct,
                         )
 
-                    if progress_pct > 0 and current_timecode_sec > 0:
+                    if progress_pct >= 100:
+                        print("\r * 100% done")
+                    elif progress_pct > 0 and current_timecode_sec > 0:
                         progress_str = f"\r * {progress_pct:.2f}% done"
                         if total_kb > 0:
                             progress_str += f"; file up to {total_kb} kB"
@@ -493,7 +495,7 @@ async def run_ffmpeg(video_info, ffmpeg_args, file_format_info=None, aux_info=No
                 logger.debug(f"progress output pattern not matched:\n{err_str}")
                 s_matches = summary_pattern.findall(err_str)
 
-                logger.debug(f'FFMPEG summary output regex: {s_matches}')
+                logger.debug(f"FFMPEG summary output regex: {s_matches}")
 
                 if not progress_end_newline_printed:
                     if len(s_matches) > 0:
@@ -518,7 +520,7 @@ async def run_ffmpeg(video_info, ffmpeg_args, file_format_info=None, aux_info=No
                         global_headers_kb,
                     ) = map(int, s_matches[0][:5])
                     mux_overhead_pct = float(s_matches[0][5])
-                    print(
+                    logger.debug(
                         f"Result: video {video_kb} kB, audio {audio_kb} kB, "
                         f"global headers {global_headers_kb} kB, "
                         f"mux overhead {(mux_overhead_pct):.2f}%"
@@ -608,7 +610,7 @@ def two_pass_transcode_file(
             )
             logger.info(f"pass 1 result: {pass_1_result}")
 
-        print("") # New line
+        print("")  # New line
         print(f"Pass 2 of 2:")
         ffmpeg_options_pass_2 = generate_ffmpeg_options(
             video_info,
@@ -723,6 +725,13 @@ def two_pass_transcode(
             print_arguments=print_arguments,
             no_execute=no_execute,
         )
+        if result[-1]:
+            lpr = result[-1]  # result of the final pass
+            print(
+                f"Result: video {lpr['video_kb']} kB, audio {lpr['audio_kb']} kB, "
+                f"global headers {lpr['global_headers_kb']} kB, "
+                f"mux overhead {(lpr['mux_overhead_pct']):.2f}%"
+            )
         if result and isinstance(result, list) and "output_path" in result[-1]:
             output_path = result[-1]["output_path"]
             print(f"Output path: {output_path}")
