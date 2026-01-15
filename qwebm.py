@@ -19,7 +19,7 @@ MD_LONG = 960  # medium size video dimension of the long side (usually width)
 MD_TARGET_SIZE_KB = 6 * 1024  # medium size video target size
 MD_CRF = 9
 MD_AUDIO_QSCALE = 3
-MD_GOP_SIZE = 120  # group of pictures, keyframes are placed every gop_size frames, may fix tracking on some players
+MD_GOP_SIZE = 60  # group of pictures, keyframes are placed every gop_size frames, may fix tracking on some players
 
 MAX_TRY = 5
 MAX_BIT_RATE_MULT = 4
