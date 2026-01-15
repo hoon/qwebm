@@ -111,6 +111,26 @@ def generate_target_file_path(source_path):
     return resolve_file_name_conflict(source_path, tentative_target_path)
 
 
+# start_time and end_time are strings in the format "HH:MM:SS.mmm"
+# returns the duration in seconds in float
+def get_duration_seconds(start_time, end_time):
+    if start_time is None or end_time is None:
+        return None
+
+    start = start_time.split(":")
+    end = end_time.split(":")
+
+    start_h = int(start[0])
+    start_m = int(start[1])
+    start_s = int(start[2])
+
+    end_h = int(end[0])
+    end_m = int(end[1])
+    end_s = int(end[2])
+
+    return (end_h - start_h) * 3600 + (end_m - start_m) * 60 + (end_s - start_s)
+
+
 def get_vorbis_target_bitrate_kbps(qscale):
     if qscale < 4:
         return 16 * (qscale + 4)
@@ -218,6 +238,8 @@ def generate_ffmpeg_options(
     video_codec=None,
     video_bitrate=None,
     video_bitrate_mult=1.0,
+    start_time=None,
+    end_time=None,
     crf_adjust=0,
     pass_no=None,
     source_path=None,
@@ -225,11 +247,20 @@ def generate_ffmpeg_options(
 ):
     [width, height] = map(int, itemgetter("width", "height")(video_info))
     codec_name = video_info["codec_name"]
-    duration = float(
+    original_duration = float(
         video_info["duration"]
         if "duration" in video_info
         else file_format_info["duration"]
     )
+
+    duration = original_duration
+    if start_time is not None:
+        if end_time is not None:
+            duration = get_duration_seconds(start_time, end_time)
+        else:
+            duration = original_duration - get_duration_seconds("0:00:00", start_time)
+    elif end_time is not None:
+        duration = get_duration_seconds("0:00:00", end_time)
 
     n_width, n_height = target_video_dimensions[0], target_video_dimensions[1]
 
@@ -276,6 +307,14 @@ def generate_ffmpeg_options(
         target_video_bitrate = floor(
             target_video_size / duration * 8 * 1000 * video_bitrate_mult
         )
+
+    if start_time is not None:
+        options.append("-ss")
+        options.append(start_time)
+
+    if end_time is not None:
+        options.append("-to")
+        options.append(end_time)
 
     options.append("-b:v")
     options.append(f"{target_video_bitrate}")
@@ -552,6 +591,8 @@ def two_pass_transcode_file(
     target_video_fit_dimensions=None,
     video_codec=None,
     preset="medium",
+    start_time=None,
+    end_time=None,
     print_arguments=False,
     no_execute=False,
 ):
@@ -592,6 +633,8 @@ def two_pass_transcode_file(
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
             crf_adjust=ffmpeg_options_adjustments["crf_adjust"],
             audio_qscale_adjust=ffmpeg_options_adjustments["audio_qscale_adjust"],
+            start_time=start_time,
+            end_time=end_time,
         )
         logger.info(f"Options: {ffmpeg_options_pass_1}")
 
@@ -626,6 +669,8 @@ def two_pass_transcode_file(
             video_bitrate=ffmpeg_options_adjustments["video_bitrate"],
             crf_adjust=ffmpeg_options_adjustments["crf_adjust"],
             audio_qscale_adjust=ffmpeg_options_adjustments["audio_qscale_adjust"],
+            start_time=start_time,
+            end_time=end_time,
         )
         logger.info(f"Options: {ffmpeg_options_pass_2}")
 
@@ -695,6 +740,8 @@ def two_pass_transcode(
     video_codec=None,
     target_file_size=None,
     target_video_fit_dimensions=None,
+    start_time=None,
+    end_time=None,
     print_arguments=False,
     no_execute=False,
 ):
@@ -722,10 +769,12 @@ def two_pass_transcode(
             target_file_size=target_file_size,
             target_video_fit_dimensions=target_video_fit_dimensions,
             video_codec=video_codec,
+            start_time=start_time,
+            end_time=end_time,
             print_arguments=print_arguments,
             no_execute=no_execute,
         )
-        if result[-1]:
+        if result and result[-1]:
             lpr = result[-1]  # result of the final pass
             print(
                 f"Result: video {lpr['video_kb']} kB, audio {lpr['audio_kb']} kB, "
@@ -787,6 +836,21 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--ss",
+        "--start-time",
+        action="store",
+        default=None,
+        help="Specify seek start time (e.g. 1:03:17.033)",
+    )
+
+    parser.add_argument(
+        "--to",
+        "--end-time",
+        action="store",
+        help="Specify seek end time (e.g. 1:07:20.637)",
+    )
+
+    parser.add_argument(
         "--print-args",
         "--pargs",
         action="store_true",
@@ -817,6 +881,8 @@ if __name__ == "__main__":
         video_codec=args.cv,
         target_file_size=target_file_size,
         target_video_fit_dimensions=target_fit_dimensions,
+        start_time=args.ss,
+        end_time=args.to,
         print_arguments=args.print_args,
         no_execute=args.nx,
     )
